@@ -1,0 +1,657 @@
+================================================================================
+VIDCLOUD.EU.ORG / play.php  -  FULL FINDINGS REPORT
+Target: "Units and Dimension 10 : Application of Dimensional Analysis"
+Session date: 2026-11-20
+Status: SOLVED - full video extracted and verified (262,753,748 bytes, H.264+AAC)
+================================================================================
+
+
+--------------------------------------------------------------------------------
+0. TL;DR
+--------------------------------------------------------------------------------
+The play.php page does NOT expose a playable URL in plain text. It embeds an
+AES-128-CBC encrypted blob in a hidden input (#enc_video_url). The page's own
+JavaScript decrypts it in the browser with a HARDCODED key and IV that never
+change between videos or sessions.
+
+    key (as passed to CryptoJS) = "5237406b503423784c39216d51322476"
+        -> used as bytes.fromhex(...)  = 16 raw bytes
+    iv                         = "T3!nW8$qZ5@rK1#p"   (16 ASCII bytes)
+    mode                       = CBC
+    padding                    = PKCS#7
+
+Decrypting #enc_video_url yields a signed Bunny CDN link (an .mp4 file disguised
+with a .jpeg extension). It is Referer-gated and expires in 240 minutes.
+
+The video_url=...master.mpd parameter in the request is a DECOY. It is ignored by
+the server and is never used. Proof in section 7.
+
+
+--------------------------------------------------------------------------------
+1. THE INPUT URL, DECODED
+--------------------------------------------------------------------------------
+Original request (as given):
+
+https://vidcloud.eu.org/play.php
+    ?batch_id=6a86cab0a06c46001b1bd7ac
+    &program_id=
+    &subject_id=6a87048e5515449476bb222e
+    &topic_id=6a882b2d4730943383631a71
+    &video_id=6a882b33fac50e467302ef5f
+    &typeId=6818add7edc3eae1486792dd
+    &video_url=https%3A%2F%2Fd1d34p8vz63oiq.cloudfront.net
+               %2Fd780e1e3-f446-4218-97f8-5d3f4dd4ca05%2Fmaster.mpd
+    &video_name=Units+and+Dimension+10+%3A+Application+of+Dimensional+Analysis
+    &video_img=https%3A%2F%2Fstatic.pw.live%2F5eb393ee95fab7468a79d189
+               %2FADMIN%2F7c3045d7-9729-4078-acbd-b60567528f9e.png
+    &video_type=new
+    &play_type=Lecture
+
+Parameter table
+---------------
+  batch_id     6a86cab0a06c46001b1bd7ac       Mongo-style ObjectId (24 hex)
+  program_id   (empty)                        optional
+  subject_id   6a87048e5515449476bb222e       ObjectId
+  topic_id     6a882b2d4730943383631a71       ObjectId
+  video_id     6a882b33fac50e467302ef5f       ObjectId  <- identifies the lecture
+  typeId       6818add7edc3eae1486792dd       ObjectId  (video source "type")
+  video_url    cloudfront .../master.mpd      DECOY - ignored (see section 7)
+  video_name   Units and Dimension 10 : ...   display title
+  video_img    static.pw.live/.../....png     poster image (PW = Physics Wallah)
+  video_type   new                            template selector
+  play_type    Lecture                        label only
+
+Observations
+------------
+* The content is Physics Wallah material (static.pw.live poster, "PW" branding,
+  pw.live asset URLs referenced from the player).
+* video_id / batch_id / subject_id / topic_id / typeId are the only fields the
+  backend plausibly uses to look up the media record.
+* video_name / video_img / play_type are cosmetic and echoed into the page.
+
+
+--------------------------------------------------------------------------------
+2. SERVER-SIDE RECONNAISSANCE
+--------------------------------------------------------------------------------
+HTTP response (GET play.php)
+----------------------------
+  HTTP/2 200
+  content-type: text/html; charset=UTF-8
+  set-cookie: PHPSESSID=hdgf41dn8q0r19uko0bbbc1doa; path=/; secure; SameSite=Lax
+  expires: Thu, 19 Nov 1981 08:52:00 GMT
+  cache-control: no-store, no-cache, must-revalidate
+  pragma: no-cache
+  server: cloudflare
+  cf-cache-status: DYNAMIC
+  alt-svc: h3=":443"; ma=86400
+  nel / report-to: Cloudflare NEL endpoints
+
+Stack identification
+--------------------
+* PHP backend (PHPSESSID cookie, the classic 1981 "expires" header).
+* Cloudflare in front (cf-ray, cf-cache-status, NEL).
+* Rocket Loader is active (injects rocket-loader.min.js, rewrites inline
+  scripts with data-cf-modified attributes and disables onclick handlers
+  unless window.__cfRLUnblockHandlers is set).
+* The PHPSESSID cookie is set but is NOT required to fetch the media
+  (proven in section 14 - cookie on/off made no difference; Referer did).
+
+Other hosts discovered
+----------------------
+  https://vidcloud.eu.org/            -> 200, <title>Study Stark</title>,
+                                         telegram.me/fatal_domain, shree-radhe.css
+  https://vidcloud.eu.org/robots.txt  -> Cloudflare managed "content signals"
+                                         block (search=yes, ai-train=no)
+  https://stream.studytalk.cc/        -> 200, LiteSpeed "Index of /" autoindex,
+                                         PHP/7.2.34, only cgi-bin listed (dead end)
+  https://vidcloud.eu.org/api         -> 301 -> /api/
+  https://vidcloud.eu.org/api/        -> 404
+
+
+--------------------------------------------------------------------------------
+3. PAGE HTML STRUCTURE (what matters)
+--------------------------------------------------------------------------------
+Total page size: 76,777 bytes. Single page, no server-side rendering of media.
+
+Hidden inputs found (complete list, in document order)
+------------------------------------------------------
+  id="batch_id"         value="6a86cab0a06c46001b1bd7ac"
+  id="subject_id"       value="6a87048e5515449476bb222e"
+  id="topic_id"         value="6a882b2d4730943383631a71"
+  id="video_id"         value="6a882b33fac50e467302ef5f"
+  id="video_name"       value="Units and Dimension 10 : Application of Dimensional Analysis"
+  id="video_img"        value="https://static.pw.live/5eb393ee95fab7468a79d189/ADMIN/7c3045d7-9729-4078-acbd-b60567528f9e.png"
+  id="video_type"       value="new"
+  id="play_type"        value="Lecture"
+  id="subject_name"     value=""                      (empty)
+  id="topic_name"       value=""                      (empty)
+  id="cookie_token"     value=""                      (empty)
+  id="attachments_data" value="{&quot;success&quot;:false,&quot;notes&quot;:[],
+                               &quot;dpp_pdf&quot;:[],&quot;exercise&quot;:[]}"
+  id="enc_video_url"    value="zz6m5QqWttpHqD+mR7HRfW7GGw/WCgFN2l0NmHZy/tdsQJYc...
+                               ...cG8Unppcx7hQIDPpo8B3XMnJQNif3vfVQF3pJxP/rf4YhYH
+                               2Iq8nIJmxSb4SQtZh720vP1rPcY6azwcBpw+EObSS4zPMMHcu+sC...
+                               ===" (1101 chars, base64, ends with '==')
+  id="enc_key_id"       value=""                      (empty)
+  id="enc_key_value"    value=""                      (empty)
+  id="enc_license_url"  value=""                      (empty)
+  id="enc_drm_type"     value="4BloTF1TnAw/nwFoOrwx5A=="
+  id="videoDetailsId"   value="6818add7edc3eae1486792dd"   (== typeId)
+  id="enc_status_url"   value=""                      (empty)
+
+Key takeaway: EVERYTHING needed to play is in this one HTML document. There is
+no second XHR for the media URL - the browser decrypts locally. Confirmed by
+network log capture (section 10): the only outbound requests after page load
+were CDN libraries, the poster, and the final signed media URL.
+
+Player DOM ids (used by video-script.js)
+----------------------------------------
+  vid, vid-box, ctrl-overlay, tap-shield, playBtn, iPlay, iPause, rwBtn, fwBtn,
+  muteBtn, volIcon, volBar, seekBar, barFill, barBuf, barThumb, curTime, durTime,
+  spdBadge, liveBadge, liveText, settBtn, settPanel, settBd, sMain, sSpeedSub,
+  sQualSub, fsBtn, iFs, ovLoad, loadMsg, ovErr, errMsg, retryBtn, bufSpin,
+  lockBtn, lockIcon, slidesPanelBtn, playlistPanelBtn, threeDotsMenuBtn,
+  threeDotsDropdown, menuAttachmentAction, menuTimelineAction, menuPlaylistAction,
+  menuAudioModeAction, menuPipAction, pipBtn, centerPlayBtn, audioModeOverlayBg,
+  sleepTimerBadge, pdfFullscreenOverlay, pdfFsCanvasWrap
+
+Note: despite "shaka-player" and "enc_drm_type=clearkey", no MediaSource /
+addSourceBuffer calls were observed. The decrypted URL is a plain progressive
+MP4 that is assigned straight to <video>.src>. The DASH/DRM machinery in the
+page is effectively vestigial for this video.
+
+
+--------------------------------------------------------------------------------
+4. APP_CONFIG (inline, near the end of the page)
+--------------------------------------------------------------------------------
+window.APP_CONFIG = {
+  payloadEncrypted: true,   // true = decrypt payload, false = plain JS / plain values
+  enableAskAi: true,
+  enableTimeline: true,
+  enableAttachments: true,
+  enablePlaylist: true,
+  speedOptions: [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.8, 1.9,
+                 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.5, 5, 5.5]
+};
+
+"payloadEncrypted: true" is the flag that tells video-script.js to run the
+decryption path on all #enc_* fields. It is the single switch for this whole
+mechanism.
+
+
+--------------------------------------------------------------------------------
+5. EXTERNAL SCRIPTS
+--------------------------------------------------------------------------------
+  https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js
+  https://cdn.jsdelivr.net/npm/hls.js@1
+  https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.9/shaka-player.compiled.js
+  video-script.js?v=102                       (same origin, 648,311 bytes)
+  /cdn-cgi/scripts/7d0fa10a/.../rocket-loader.min.js   (Cloudflare)
+
+Only crypto-js actually matters. The page ships it purely so the client can do
+AES decryption of the payload.
+
+
+--------------------------------------------------------------------------------
+6. video-script.js  -  OBFUSCATION ANALYSIS
+--------------------------------------------------------------------------------
+Size: 648,311 bytes on 14 lines (one gigantic line).
+Obfuscator: javascript-obfuscator (obfuscator.io) with
+  * a bytecode/VM-style dispatch loop (switch over opcodes, custom stack,
+    "vmd_b2fe1c" sandbox object, trap/scope records with _$Y40KkE style keys)
+  * a rotated, base64-encoded string table (function vms() -> const X6=[...])
+  * RC4-style string decoders: vmn(index) and vme(index, key) - base64 decode
+    then a KSA/PRGA XOR pass with a per-call key string
+  * self-defending arithmetic guard: an IIFE at the top rotates the string array
+    until a checksum expression equals 0xa229f (anti-tamper)
+  * global anti-debug: redefines Function, window, document, fetch, CryptoJS,
+    Hls, shaka, etc. via Object.defineProperty getters/setters
+
+Because of this, plain grep for "decrypt", "AES", "enc_video_url", "mpd",
+"cloudfront" returns ZERO useful hits. Static reading was a dead end.
+
+What WAS recoverable statically
+-------------------------------
+A block of 470 concatenated single-quoted base64 chunks (519,546 chars of
+source) decodes to a 14,446-byte blob containing the string table. Extracted
+readable strings of interest:
+
+  studytalk.cc
+  vidcloud.eu.org
+  stream.studytalk.cc
+  localhost
+  toLowerCase, hostname, documentElement, innerHTML, replace, about:blank
+  <player DOM ids and event names as listed in section 3>
+  "StudyStark Player"
+  Physics Wallah          (mediaSession artist)
+  Hinglish                (audio track label)
+  12+                     (class label)
+  0askAiInputModePreference   (localStorage key)
+  use strict, goBackToContent
+
+Also found in clear text:
+  const API_BASE = "https://vidcloud.eu.org/api/";
+
+The hostname list (studytalk.cc / vidcloud.eu.org / stream.studytalk.cc /
+localhost) is an anti-abuse / anti-clone gate: the script checks
+window.location.hostname and blanks documentElement.innerHTML if it does not
+match an allowlisted host. That is why running the script from a local file
+"works" only when the DOM is already present, and why hotlinking fails.
+
+API_BASE exists but is not used for this flow: every plausible endpoint under
+/api/ returned 404 (see section 9).
+
+
+--------------------------------------------------------------------------------
+7. PROOF THAT video_url=...master.mpd IS A DECOY
+--------------------------------------------------------------------------------
+Two independent tests:
+
+(a) The CloudFront URL in the query string, fetched directly:
+      GET https://d1d34p8vz63oiq.cloudfront.net/d780e1e3-.../master.mpd
+      -> HTTP 200, body:
+         <?xml version="1.0" encoding="UTF-8"?>
+         <Error><Code>MissingKey</Code>
+         <Message>Missing Key-Pair-Id query parameter or cookie value</Message></Error>
+    It is a CloudFront private distribution. The .mpd is not publicly readable
+    and the page never signs it.
+
+(b) Substituting a nonsense video_url:
+      GET play.php?...&video_url=https%3A%2F%2Fexample.com%2Fhello%2Fmaster.mpd...
+      -> decrypted #enc_video_url was still the SAME bunny-cdn .jpeg URL
+      GET play.php?...&video_url=x&video_name=x...
+      -> again the SAME bunny-cdn .jpeg URL (only the Signature/epoch differed)
+
+Conclusion: the backend looks the media up by video_id/typeId (database record)
+and ignores video_url entirely. The .mpd is noise carried over from an upstream
+app's deep link.
+
+
+--------------------------------------------------------------------------------
+8. THE BREAKTHROUGH  -  RUNTIME HOOKING
+--------------------------------------------------------------------------------
+Static analysis was blocked, so the page was executed for real.
+
+Tooling constraint: no installs were allowed. A Chromium binary already existed
+in the pre-populated Playwright cache:
+
+  ~/.cache/ms-playwright/chromium-1148/chrome-linux/chrome
+  ~/.cache/ms-playwright/chromium_headless_shell-1148/chrome-linux/headless_shell
+  -> "Chromium 131.0.6778.33"
+
+Method
+------
+1. Save the page locally, rewrite the relative script tag to an absolute URL so
+   it still loads from the origin:
+      src="video-script.js?v=102"  ->  src="https://vidcloud.eu.org/video-script.js?v=102"
+2. Inject a hook BEFORE the player script runs, wrapping CryptoJS:
+      - CryptoJS.AES.decrypt / .encrypt
+      - CryptoJS.enc.Utf8.stringify
+      - CryptoJS.PBKDF2
+   Each wrapper records {arguments, return value} into window.__LOG.
+   A polling setInterval waits for window.CryptoJS to appear (crypto-js is
+   loaded from a CDN and may arrive after the inline hook).
+3. After 12-20 s, dump window.__LOG into a <div id="__DUMP"> as JSON.
+4. Run headless and read the DOM:
+      headless_shell --headless --no-sandbox --disable-gpu \
+        --disable-dev-shm-usage --autoplay-policy=no-user-gesture-required \
+        --virtual-time-budget=40000 --dump-dom file:///.../page_hooked.html
+
+Result: four captured calls, and the whole scheme fell out:
+
+  [0] AES.decrypt
+      arg0 = "zz6m5QqWttpHqD+mR7HRfW7GGw/WCgFN2l0NmHZy/tdsQJYc..."  (the blob)
+      arg1 = "5237406b503423784c39216d51322476"                     (THE KEY)
+      arg2 = [object Object]                                        (config)
+      res  = 68747470733a2f2f62756e6e792d63646e2d...  (hex of the URL)
+
+  [1] Utf8.stringify
+      arg  = <same hex>
+      res  = https://bunny-cdn-qbg-s7.testwave.cc/08120d005a0c...jpeg?Policy=...
+
+  [2] AES.decrypt
+      arg0 = "4BloTF1TnAw/nwFoOrwx5A=="   (the #enc_drm_type field)
+      arg1 = "5237406b503423784c39216d51322476"
+      res  = 636c6561726b6579
+
+  [3] Utf8.stringify
+      res  = clearkey
+
+So: one static key decrypts every #enc_* field on the page.
+
+Why arg2 shows as "[object Object]": CryptoJS.AES.decrypt takes
+(message, key, cfg) and the site passes a config object (mode/padding). Because
+the IV was not visible in the log, it was derived independently:
+
+  AES-CBC:  P0 = D(C0) XOR IV   =>   IV = D(C0) XOR P0
+  With C0 = first 16 bytes of the ciphertext and P0 = "https://bunny-cd"
+  (known plaintext prefix, since every media URL starts with "https://bunny-cd"):
+
+      IV = 5433216e573824715a3540724b312370  =  "T3!nW8$qZ5@rK1#p"
+
+  This is a human-readable 16-char ASCII string, which is exactly how the site
+  author hardcoded it. Using that IV, the full 784-byte ciphertext decrypts
+  cleanly to a 768-byte URL with no padding garbage.
+
+Failed approach worth recording (do not repeat)
+-----------------------------------------------
+Before hooking, ~1400 AES combinations were brute-forced offline:
+  keys: raw hex of the string, MD5/SHA-256 of the string, base64 text, hex text,
+        MD5 of each ObjectId, MD5(blob+ObjectId), ...
+  IVs:  zero, key-as-IV, first/last ciphertext block, ...
+  modes: CBC, ECB, CFB, OFB, CTR, CFB8; with and without padding
+Result: ZERO hits. The key is a raw 32-char hex string used as 16 BYTES
+(bytes.fromhex), not as an ASCII passphrase, so no phrase-based derivation
+(MD5/PBKDF2/EVP_BytesToKey) applies. The hook was the only reliable route.
+
+
+--------------------------------------------------------------------------------
+9. DEAD ENDS (documented so they are not re-attempted)
+--------------------------------------------------------------------------------
+Endpoint sweep under https://vidcloud.eu.org/ - all 404:
+  /api/proxy  /api/stream  /api/signed  /api/token  /api/get-url  /api/resolve
+  /proxy.php  /stream.php  /get_stream.php  /api/video  /api/get-video
+  /api/decrypt  /api/index.php
+  and a ~25-name sweep: video, getvideo, get_video, get-video, videourl,
+  video_url, getvideoUrl, play, source, extract, decrypt, sign, signed, token,
+  proxy, stream, url, get_url, geturl, resolve, api, getstream, streamurl
+  (each with and without .php) -> nothing but 404s.
+
+  https://stream.studytalk.cc/  -> LiteSpeed autoindex, only cgi-bin.
+  https://stream.studytalk.cc/<hash>/master.mpd -> 404.
+
+CloudFront direct access -> MissingKey (section 7a).
+
+No fetch()/XMLHttpRequest call for a media URL exists anywhere in the page or
+in video-script.js (verified by grep for "fetch(" - zero hits - and by the
+captured network log, which shows only CDN libs + the poster + the final URL).
+
+
+--------------------------------------------------------------------------------
+10. RECOVERED CRYPTO PARAMETERS  (the whole secret)
+--------------------------------------------------------------------------------
+  Algorithm : AES-128-CBC
+  Key       : "5237406b503423784c39216d51322476"
+              -> 32 hex chars -> bytes.fromhex() -> 16 raw bytes
+              -> 52 37 40 6b 50 34 23 78 4c 39 21 6d 51 32 24 76
+              (these bytes happen to be printable ASCII: R7@kP4#xL9!mQ2$v)
+  IV        : "T3!nW8$qZ5@rK1#p"   (16 ASCII bytes)
+              -> 54 33 21 6e 57 38 24 71 5a 35 40 72 4b 31 23 70
+  Padding   : PKCS#7
+  Applies to: #enc_video_url, #enc_drm_type, and any future #enc_* field
+
+  Ciphertext #enc_video_url : 784 bytes (1101 base64 chars)
+  Plaintext  #enc_video_url : 768 bytes (a full URL)
+  Ciphertext #enc_drm_type  : 16 bytes (24 base64 chars)
+  Plaintext  #enc_drm_type  : 9 bytes -> "clearkey"
+
+Note on stability: the KEY and IV are constants baked into video-script.js.
+The ciphertext changes per request only because the embedded URL (and its
+signature) changes per request.
+
+
+--------------------------------------------------------------------------------
+11. DECRYPTED PAYLOAD  -  MEDIA URL ANATOMY
+--------------------------------------------------------------------------------
+Decrypted #enc_video_url (one real sample; the Signature is per-request):
+
+  https://bunny-cdn-qbg-s7.testwave.cc/
+    08120d005a0c5702140406535618121b4047045002070a4b0b455e5e505c00040b530e54.jpeg
+    ?Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9idW5ueS1jZG4t...
+    &Signature=PvGTTpc050hv5OZqtJwpTxKvOLKoFGbiyTty2QQy5vADzhV3nW3OMTWgsyVBbUks...
+    &Key-Pair-Id=APKA123456789
+
+Path segment
+------------
+  08120d005a0c5702140406535618121b4047045002070a4b0b455e5e505c00040b530e54
+  = 78 hex chars (39 bytes), a content-addressed object id. Same id every time
+  for this lecture -> the underlying file is stable; only the signature rotates.
+
+Extension
+---------
+  .jpeg  -> the file is NOT a JPEG. It is an MP4. Verified in section 13.
+  This is deliberate camouflage so the object does not look like video in a
+  bucket listing / CDN log.
+
+Query parameters (AWS CloudFront canned "custom policy" style, served by Bunny)
+-------------------------------------------------------------------------------
+  Policy  = base64url(JSON). Decoded:
+
+    {
+      "Statement": [
+        {
+          "Resource": "https://bunny-cdn-qbg-s7.testwave.cc/08120d00...0e54.jpeg",
+          "Condition": {
+            "DateLessThan": { "AWS:EpochTime": 1795171954 }
+          }
+        }
+      ]
+    }
+
+  Signature   = 342 chars base64url -> RSA-2048 signature over Policy
+  Key-Pair-Id = APKA123456789   (a placeholder-looking key id)
+
+Lifetime
+--------
+  DateLessThan is issued as (request time + 240 minutes). Measured twice:
+  once 3.99 h ahead, once exactly 240.0 min ahead. So every page load mints a
+  fresh 4-hour ticket. Old tickets 403 once expired - a cached URL is useless
+  after ~4 h, so always re-decrypt from a fresh page fetch.
+
+  Observed expiry example: 1795171954 = 2026-11-20 10:52:34 UTC
+  (generated ~06:52 UTC same day).
+
+DRM
+---
+  #enc_drm_type decrypts to "clearkey", but:
+    #enc_key_id     = ""
+    #enc_key_value  = ""
+    #enc_license_url= ""
+    #enc_status_url = ""
+  and the MP4 has no encrypted sample entries (no encv/enca boxes).
+  => "clearkey" is cosmetic. The file is plain, unencrypted H.264 + AAC.
+     No key exchange, no license server, nothing to unwrap.
+
+
+--------------------------------------------------------------------------------
+12. CDN ACCESS RULES  (this is where naive clients fail)
+--------------------------------------------------------------------------------
+Two DIFFERENT hosts with two DIFFERENT header rules. Keep them separate:
+
+  play.php  (vidcloud.eu.org)   : needs SOME non-empty User-Agent
+                                  (no Referer, no cookie needed)
+  media CDN (bunny-cdn-*.cc)    : needs a Referer AND a non-Chrome UA
+
+Host: bunny-cdn-qbg-s7.testwave.cc  (behind Heroku router + Bunny)
+Errors come back as XML, 111 bytes:
+
+  <?xml version="1.0" encoding="UTF-8"?>
+  <Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>
+
+Response headers on success:
+  HTTP/2 200 (or 206 with Range)
+  content-type: video/mp4
+  content-length: 262753748
+  access-control-allow-origin: *
+  access-control-allow-headers: *
+  access-control-allow-methods: GET, POST, OPTIONS
+  via: 2.0 heroku-router
+  server: Heroku
+  nel / reporting-endpoints: heroku-nel
+
+RULE 0 - The PAGE also needs a User-Agent (different rule, different host)
+--------------------------------------------------------------------------
+  play.php with NO User-Agent header at all -> 403 Forbidden
+  play.php with any UA string               -> 200
+
+  Python's urllib sends no User-Agent by default, so
+  urllib.request.urlopen(play_url) fails before decryption is even reached.
+  The extractor therefore always sets one.
+
+  Measured on play.php (no cookie needed, any non-empty UA works):
+
+    (header absent)      -> 403
+    python-urllib/3.12   -> 200
+    python-requests/2.31 -> 200
+    curl/8.5.0           -> 200
+    Wget/1.21            -> 200
+    Mozilla/5.0          -> 200
+
+  This is a DIFFERENT rule from RULE 2 below, which applies to the CDN host and
+  where a Chrome UA is actively blocked. Do not conflate them: play.php wants
+  *some* UA, the media CDN wants *no* Chrome token.
+
+RULE 1 - Referer is MANDATORY
+-----------------------------
+  no Referer                        -> 403 AccessDenied
+  Referer: https://vidcloud.eu.org/ -> 200 / 206   <-- required
+  Referer: https://google.com/      -> 403         (must be the site itself)
+
+  The PHPSESSID cookie made NO difference (with and without it: 403 when the
+  Referer was absent, 200 when present). So it is a pure Referer check, not a
+  session check.
+
+RULE 2 - User-Agent must NOT contain a "Chrome/<version>" token
+---------------------------------------------------------------
+This one is easy to miss because it looks random. Measured matrix
+(Referer always https://vidcloud.eu.org/, Range: bytes=0-1):
+
+  UA                                                       result
+  -------------------------------------------------------  ------
+  Mozilla/5.0                                              206  OK
+  Mozilla/5.0 (Windows NT 10.0; Win64; x64)                206  OK
+  Mozilla/5.0 (X11; Linux x86_64)                          206  OK
+  Mozilla/5.0 AppleWebKit/537.36                           206  OK
+  Mozilla/5.0 Chrome                                       206  OK
+  Mozilla/5.0 (Windows NT 10.0; Win64; x64) Safari/537.36  206  OK
+  python-urllib/3.12                                       206  OK
+  (empty UA)                                               206  OK
+  Chrome/131                                               403  BLOCKED
+  Mozilla/5.0 Chrome/131                                   403  BLOCKED
+  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+      (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36    403  BLOCKED
+  ...Chrome/120.0 Safari/537.36                            403  BLOCKED
+  Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36
+      Chrome/131.0.0.0 Safari/537.36                       403  BLOCKED
+  curl/8.5.0                                               403  BLOCKED
+
+  Conclusion: the WAF denies anything matching /Chrome\/\d+/ and also denies
+  "curl/". It is specifically anti-automation: real browsers get blocked, a
+  plain "Mozilla/5.0" gets through. A "correct" browser UA is the WRONG move
+  here. 12 consecutive requests with "Mozilla/5.0" -> 12 x 206, 0 failures.
+
+RULE 3 - Range is supported
+---------------------------
+  Range: bytes=0-1        -> 206, 2 bytes
+  Range: bytes=0-1048575  -> 206, 1 MiB (verified: starts with
+                             "\x00\x00\x00 ftypisom\x00\x00\x02\x00isomiso2avc1mp41")
+  => resumable downloads work; no need to pull 262 MB in one shot.
+
+Also note: the object 403s WITHOUT the query string too (no Policy/Signature
+=> 403), so the signature is genuinely enforced; it is not only a Referer gate.
+
+
+--------------------------------------------------------------------------------
+13. DOWNLOAD VERIFICATION
+--------------------------------------------------------------------------------
+Full download performed with the final script:
+
+  output size : 262,753,748 bytes  (== Content-Length, exact)
+  content-type: video/mp4
+
+MP4 box structure (top level, parsed from the file):
+  ftyp   32 bytes
+  free   8 bytes
+  mdat   257,703,950 bytes
+  moov   5,049,758 bytes      (at offset 257,703,990 - i.e. moov at the END)
+
+  NOTE: moov is after mdat ("non-faststart"). Consequences:
+    * playback needs the whole file (or a seek to the tail) before it starts;
+    * a naive "download the first N MB and test" will show no moov - not a
+      corrupt file, just the layout;
+    * a progressive web player must range-request the tail. The site's player
+      does exactly that, which is why the browser could still start playback.
+
+moov contents:
+  mvhd : version 0, timescale 1000, duration 6,638,038  -> 6,638.0 s
+  trak 1 (video):
+      mdhd version 0, timescale 90,000, duration 597,420,000 -> 6,638.0 s
+      handler = 'vide'
+      sample entry = 'avc1'   (H.264/AVC)
+  trak 2 (audio):
+      mdhd version 0, timescale 48,000, duration 318,625,792 -> 6,638.03 s
+      handler = 'soun'
+      sample entry = 'mp4a'   (AAC, MPEG-4 Audio)
+  udta : 98 bytes
+
+  Duration 6,638 s = 1 h 50 min 38 s.
+
+So the file is a normal, complete, playable MP4. Nothing is encrypted, nothing
+is truncated, no DRM boxes present.
+
+
+--------------------------------------------------------------------------------
+14. ENVIRONMENT NOTES / CLEANUP
+--------------------------------------------------------------------------------
+During exploration an attempt was made to install nodejs/npm/ffmpeg via apt.
+It was interrupted on request and fully reverted:
+
+  1. killed the running apt-get + dpkg children (pids 10875 / 11040)
+  2. dpkg --configure -a           (to un-wedge the interrupted unpack)
+  3. reconstructed the exact 724-package install list from
+     /var/log/apt/history.log and purged all of them
+  4. purged build-essential too
+  5. apt-get clean, removed /tmp/apt-dpkg-install-*
+  6. verified: dpkg -l | grep -c '^ii' -> 222 (unchanged baseline),
+              apt-get check -> clean, no node/npm/ffmpeg binaries left
+
+The final tool needs NONE of that. It is pure Python standard library:
+  urllib, base64, re, json, struct, argparse, os, shutil, subprocess
+AES is implemented inline (~90 lines) and cross-checked against openssl:
+  60 random plaintexts, AES-128-CBC -> byte-identical to openssl, 60/60
+  plus one AES-256-CBC case -> identical (so a future key rotation to 256-bit
+  is already supported by the same code path).
+
+Things that were NOT needed at any point:
+  yt-dlp, ffmpeg, node, npm, playwright python bindings, requests, pycryptodome.
+  (Chromium was used only as a one-off instrumented browser, and it was already
+  present in the Playwright cache.)
+
+
+--------------------------------------------------------------------------------
+15. HOW TO RE-DERIVE EVERYTHING IF THE KEY EVER ROTATES
+--------------------------------------------------------------------------------
+If #enc_video_url stops decrypting (site pushes a new video-script.js):
+
+  1. Fetch the page and note the current #enc_video_url blob.
+  2. Confirm the expected plaintext prefix: every media URL begins with
+     "https://bunny-cd" (or at minimum "https://").
+  3. If you have the key, get the IV with:  IV = AES_dec(C0, key, IV=0) XOR P0
+     (C0 = first ciphertext block, P0 = known 16-byte plaintext prefix).
+  4. If you do NOT have the key: re-run the hooking recipe from section 8 -
+     wrap CryptoJS.AES.decrypt before video-script.js loads and read the args.
+     That is the fastest reliable way; static deobfuscation of this file is not
+     worth the time.
+  5. Expect the new key to be a 32-char hex string (16 raw bytes) and the IV to
+     be a 16-char printable string, based on the current implementation style.
+
+Sanity checks after any change:
+  * decrypting #enc_drm_type must yield a short lowercase word ("clearkey");
+    if it yields garbage, key or IV is wrong.
+  * a correct decrypt of #enc_video_url ends with "&Key-Pair-Id=...".
+  * a wrong key/IV gives binary garbage or a mangled "https://" prefix.
+
+
+--------------------------------------------------------------------------------
+16. FILE INVENTORY
+--------------------------------------------------------------------------------
+  /root/vidcloud_extract.py    the working extractor (pure stdlib)
+  /root/VIDCLOUD_FINDINGS.txt  this document
+  /root/VIDCLOUD_LOGIC.md      the algorithm / working-logic document
+
+All temporary artifacts (saved pages, network logs, hooked copies, partial
+downloads, test MP4) were deleted after verification.
+
+================================================================================
+END OF REPORT
+================================================================================
