@@ -80,7 +80,39 @@ fresh rather than caching a URL.
 
 ---
 
-## Documentation
+## Live download (proves the whole pipeline)
+
+A real lecture was pulled end to end and published as a Release:
+
+**https://github.com/Jatintanwar999/vidcloud-extractor/releases/tag/lecture-2026-11-20**
+
+![General Organic Chemistry 05 - poster frame](https://github.com/Jatintanwar999/vidcloud-extractor/releases/download/lecture-2026-11-20/poster.jpg)
+
+*General Organic Chemistry, Lecture 05 (IUPAC Practice) — 1 h 08 m 30 s.*
+
+| Asset | Size | Notes |
+|---|---|---|
+| `preview.mp4` | 1.8 MB | first 60 s, plays inline |
+| `poster.jpg` | 74 KB | frame at 00:05 |
+| `lecture.mp4` | 146 MB | full lecture, H.264 + AAC, `moov` at front |
+| `full.ts` | 173 MB | raw concatenated transport stream |
+
+That run exercised the full chain: AES-128-CBC decrypt of `#enc_video_url`, the
+Referer/UA gate, HLS playlist parsing, 14 Referer-gated segment downloads, byte
+concatenation, and a lossless remux. The result decodes with zero errors
+(`ffmpeg -f null -` → exit 0).
+
+Reproduce it with `tools/grab_hls.py`:
+
+```bash
+python3 tools/grab_hls.py "<play.php url>" -o build/full.ts          # whole lecture
+python3 tools/grab_hls.py "<play.php url>" -o build/full.ts --max-seconds 60
+```
+
+Segments are raw MPEG-TS with no init segment, so they concatenate byte-for-byte
+into a valid `.ts`; only the MP4 remux (`ffmpeg -c copy`) needs ffmpeg.
+
+---
 
 | File | Contents |
 |---|---|
