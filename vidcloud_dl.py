@@ -177,8 +177,20 @@ def fetch_text(url, headers=None, timeout=60):
 
 
 def page_field(html, field, default=""):
-    m = re.search(r'id="%s"[^>]*value="([^"]*)"' % re.escape(field), html)
-    return _html.unescape(m.group(1)) if m else default
+    """Read an <input id="field" ... value="..."> regardless of attribute order
+    or extra whitespace. The site writes `id="x"    value=""` (multiple spaces)
+    and sometimes puts value before id, so a rigid single-space regex fails."""
+    pat = (r'<input\b[^>]*\bid\s*=\s*["\']%s["\'][^>]*>'
+           % re.escape(field))
+    m = re.search(pat, html, re.I | re.S)
+    if not m:
+        # fall back: value may appear before id
+        pat2 = (r'<input\b[^>]*\bvalue\s*=\s*["\']([^"\']*)["\'][^>]*'
+                r'\bid\s*=\s*["\']%s["\']' % re.escape(field))
+        m = re.search(pat2, html, re.I | re.S)
+        return _html.unescape(m.group(1)) if m else default
+    v = re.search(r'\bvalue\s*=\s*["\']([^"\']*)["\']', m.group(0), re.I | re.S)
+    return _html.unescape(v.group(1)) if v else default
 
 
 def extract(play_url):

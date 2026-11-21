@@ -116,6 +116,7 @@ into a valid `.ts`; only the MP4 remux (`ffmpeg -c copy`) needs ffmpeg.
 
 | File | Contents |
 |---|---|
+| [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) | **Start here if you are an agent.** What to scrape, what to pass, how to verify, failure table. |
 | [`docs/VIDCLOUD_FINDINGS.txt`](docs/VIDCLOUD_FINDINGS.txt) | Raw evidence: every observation, measurement, dead end, and the recovered crypto parameters. |
 | [`docs/VIDCLOUD_LOGIC.md`](docs/VIDCLOUD_LOGIC.md) | The working algorithm, stage by stage, with reasoning and a minimal reference implementation. |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | Condensed context note for resuming work in a fresh session. |
